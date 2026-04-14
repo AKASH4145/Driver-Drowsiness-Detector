@@ -1,6 +1,6 @@
 ## Driver Drowsiness Detector 
 
- A real-time assistive safety system designed to help drivers stay awake and alert while navigating safely. The system captures live video from a webcam, detects faces using `dlib`'s frontal face detector, and determines the state of the eyes by tracking 68 facial landmarks and computing the Eye Aspect Ratio (EAR).
+ A real-time assistive safety system designed to help drivers stay awake and alert while navigating safely. The system captures live video from a webcam, detects faces using **MediaPipe's FaceLandmarker**, and determines the state of the eyes by tracking facial landmarks and computing the Eye Aspect Ratio (EAR).
 
  When the driver's eyes remain closed or squinted beyond a safe threshold for a consecutive number of frames, the system triggers a continuous audible alert using a background thread and a visual "DROWSINESS ALERT!" warning on the screen to wake the driver.
 
@@ -18,8 +18,9 @@
 
 ## Features
 
- - Real-time active face and eye detection
+ - Real-time face and eye detection using MediaPipe FaceLandmarker
  - Eye Aspect Ratio (EAR) calculation for reliable blink detection
+ - Mouth Aspect Ratio (MAR) calculation for yawn detection
  - Fully automatic pre-trained landmark model downloading
  - Asynchronous audible alerts using `winsound` threading to ensure smooth video playback
  - Configurable sensitivity (threshold mapping and consecutive frames count)
@@ -30,9 +31,9 @@
 
 ## Concepts Used
 
- - Object Detection (Dlib HOG Face Detector)
- - Facial Landmark tracking (Dlib 68-point shape predictor)
+ - Face Detection & Landmark Tracking (MediaPipe FaceLandmarker)
  - Eye Aspect Ratio (EAR) formula and Euclidean distance math
+ - Mouth Aspect Ratio (MAR) formula for yawn detection
  - Multithreading for non-blocking asynchronous audio alerts
  - Real-time video processing and visual annotation
 
@@ -42,10 +43,10 @@
 
  - Language — Python
  - Computer Vision — OpenCV (`cv2`)
- - Facial Recognition — `dlib`
+ - Facial Recognition & Landmark Detection — MediaPipe (`mediapipe`)
  - Numerical Processing — NumPy 
  - Audio Playback — `winsound` (Native Windows Module)
- - Multi-processing — Python `threading`
+ - Multi-threading — Python `threading`
 
 ---
 
@@ -53,17 +54,18 @@
 
 Workflow:
 1. Live video feed (webcam frame capture)
-2. Auto-provisioning of `shape_predictor_68_face_landmarks.dat` model if missing
-3. Grayscale Preprocessing
-4. Face Detection (Dlib HOG)
-5. Facial Landmark Detection (68 points mapped)
-6. Extraction of Left and Right Eye coordinates
-7. Compute Euclidean logic for Eye Aspect Ratio (EAR)
-8. Threshold check (EAR < 0.25)
-9. Cooldown/Consecutive frame tracking (> 20 Frames)
-10. Asynchronous thread trigger for `winsound.Beep`
-11. Visual Overlay (Eye hulls and Warning Text displayed)
-12. Display live window
+2. Auto-provisioning of `face_landmarker.task` model if missing
+3. Frame conversion to MediaPipe Image format
+4. Face & Landmark Detection (MediaPipe FaceLandmarker)
+5. Extraction of Left and Right Eye coordinates
+6. Compute Euclidean logic for Eye Aspect Ratio (EAR)
+7. Compute Euclidean logic for Mouth Aspect Ratio (MAR)
+8. Drowsiness check (EAR < 0.25)
+9. Yawn check (MAR > 0.6)
+10. Consecutive frame tracking (EAR: 20 frames, Yawn: 15 frames)
+11. Asynchronous thread trigger for `winsound.Beep` if drowsy
+12. Visual Overlay (Eye contours, MAR/EAR metrics, and Alert Text displayed)
+13. Display live window
 
 ---
 
@@ -87,14 +89,19 @@ Driver Drowsiness Detector/
 - `pip install -r requirements.txt`  
 - `python detect.py`
 
-*(Note: The `shape_predictor_68_face_landmarks.dat` model will download automatically on first run!).*
+*(Note: The `face_landmarker.task` model is downloaded automatically!)*
 
 ---
 
 ## Demo Screenshots and Video
  
- Demo Screenshots and Videos will be added soon !
+   ![Driver Awake](C:\Users\akash\OneDrive\Desktop\OpenCV Projects\Driver Drowsiness Detector\Demo Screenshots & Recording\Awake.png)
 
+   ![Driver Yawns](C:\Users\akash\OneDrive\Desktop\OpenCV Projects\Driver Drowsiness Detector\Demo Screenshots & Recording\Yawning.png)
+
+   ![Driver Drowzy](C:\Users\akash\OneDrive\Desktop\OpenCV Projects\Driver Drowsiness Detector\Demo Screenshots & Recording\Drowzy%20detected.png)
+
+   🎥 Demo Video:  https://drive.google.com/file/d/1aqU8oFkwPp50V6ke1Jh53XangXQd7H-5/view?usp=sharing
 ---
 
 ## Observations
