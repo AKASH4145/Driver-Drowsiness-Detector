@@ -1,130 +1,183 @@
-import dlib
 import cv2
 import numpy as np
-import winsound
-import os
-import urllib.request
-import bz2
+import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 import threading
 
-# Helper function to compute euclidean distance
-def euclidean(pt1, pt2):
-    return np.linalg.norm(np.array(pt1) - np.array(pt2))
-
-def eye_aspect_ratio(eye):
-    # compute the euclidean distances between the two sets of
-    # vertical eye landmarks (x, y)-coordinates
-    A = euclidean(eye[1], eye[5])
-    B = euclidean(eye[2], eye[4])
-
-    # compute the euclidean distance between the horizontal
-    # eye landmark (x, y)-coordinates
-    C = euclidean(eye[0], eye[3])
-
-    # compute the eye aspect ratio
-    ear = (A + B) / (2.0 * C)
-
-    # return the eye aspect ratio
-    return ear
-
-def download_landmark_model():
-    model_file = "shape_predictor_68_face_landmarks.dat"
-    if not os.path.exists(model_file):
-        print("Downloading shape_predictor_68_face_landmarks.dat...")
-        url = "http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2"
-        zip_path = model_file + ".bz2"
-        urllib.request.urlretrieve(url, zip_path)
-        print("Extracting...")
-        with bz2.BZ2File(zip_path, 'rb') as source, open(model_file, 'wb') as dest:
-            dest.write(source.read())
-        os.remove(zip_path)
-        print("Downloaded and extracted model.")
-        
-def get_landmarks(shape):
-    # Convert dlib's shape object to numpy array
-    coords = np.zeros((68, 2), dtype="int")
-    for i in range(0, 68):
-        coords[i] = (shape.part(i).x, shape.part(i).y)
-    return coords
-
-alarm_on = False
-def sound_alarm_thread():
-    global alarm_on
-    while alarm_on:
+# ─────────────────────────────────────────────
+# Cross-platform alarm
+# ─────────────────────────────────────────────
+try:
+    import winsound
+    def _beep():
         winsound.Beep(1000, 500)
+except ImportError:
+    def _beep():
+        print("\a", end="", flush=True)
 
-if __name__=='__main__':
-    download_landmark_model()
+alarm_event = threading.Event()
 
-    # Load the pre-trained face detection model and the facial landmark predictor
-    detector = dlib.get_frontal_face_detector()
-    predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+def alarm_worker():
+    while alarm_event.is_set():
+        _beep()
 
-    EYE_AR_THRESH = 0.25
-    EYE_AR_CONSEC_FRAMES = 20
+def start_alarm():
+    if not alarm_event.is_set():
+        alarm_event.set()
+        threading.Thread(target=alarm_worker, daemon=True).start()
 
-    COUNTER = 0
+def stop_alarm():
+    alarm_event.clear()
 
-    # indexes of the facial landmarks for the left and right eye (0-indexed)
-    (lStart, lEnd) = (42, 48)
-    (rStart, rEnd) = (36, 42)
 
-    # Note: trying port 1 then fallback to 0
+# ─────────────────────────────────────────────
+# MediaPipe landmark indices for eyes & mouth
+# ─────────────────────────────────────────────
+LEFT_EYE  = [362, 385, 387, 263, 373, 380]
+RIGHT_EYE = [33,  160, 158, 133, 153, 144]
+MOUTH     = [61,  291, 39,  181, 0,   17,  269, 405]
+
+
+def eye_aspect_ratio(landmarks, eye_indices, w, h):
+    pts = []
+    for idx in eye_indices:
+        lm = landmarks[idx]
+        pts.append((lm.x * w, lm.y * h))
+    A = np.linalg.norm(np.array(pts[1]) - np.array(pts[5]))
+    B = np.linalg.norm(np.array(pts[2]) - np.array(pts[4]))
+    C = np.linalg.norm(np.array(pts[0]) - np.array(pts[3]))
+    ear = (A + B) / (2.0 * C)
+    return ear, pts
+
+
+def mouth_aspect_ratio(landmarks, mouth_indices, w, h):
+    pts = []
+    for idx in mouth_indices:
+        lm = landmarks[idx]
+        pts.append((lm.x * w, lm.y * h))
+    A = np.linalg.norm(np.array(pts[2]) - np.array(pts[6]))
+    B = np.linalg.norm(np.array(pts[3]) - np.array(pts[7]))
+    C = np.linalg.norm(np.array(pts[0]) - np.array(pts[1]))
+    mar = (A + B) / (2.0 * C)
+    return mar
+
+
+def draw_eye_contour(frame, pts, color):
+    points = np.array(pts, dtype=np.int32)
+    hull = cv2.convexHull(points)
+    cv2.drawContours(frame, [hull], -1, color, 1)
+
+
+# ─────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────
+def main():
+    EAR_THRESH         = 0.25
+    EAR_CONSEC_FRAMES  = 20
+    MAR_THRESH         = 0.6
+    YAWN_CONSEC_FRAMES = 15
+    EAR_COUNTER        = 0
+    YAWN_COUNTER       = 0
+
+    # Use the new mediapipe tasks API
+    base_options = python.BaseOptions(model_asset_path='face_landmarker.task')
+    options = vision.FaceLandmarkerOptions(base_options=base_options, num_faces=1)
+    face_landmarker = vision.FaceLandmarker.create_from_options(options)
+
     cap = cv2.VideoCapture(1)
     if not cap.isOpened():
         cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        raise RuntimeError("[ERROR] No camera found.")
+
+    print("[INFO] Drowsiness detector running. Press Q or Enter to quit.")
 
     while True:
-        ret, frame =cap.read()
-        if not ret:
+        ret, frame = cap.read()
+        if not ret or frame is None or frame.size == 0:
+            continue
+
+        h, w = frame.shape[:2]
+
+        # Convert frame to MediaPipe Image
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        
+        # Detect face landmarks
+        detection_result = face_landmarker.detect(mp_image)
+
+        status_text  = "Awake"
+        status_color = (0, 255, 0)
+
+        if detection_result.face_landmarks:
+            for face_landmarks in detection_result.face_landmarks:
+                lms = face_landmarks
+
+                left_ear,  left_pts  = eye_aspect_ratio(lms, LEFT_EYE,  w, h)
+                right_ear, right_pts = eye_aspect_ratio(lms, RIGHT_EYE, w, h)
+                ear = (left_ear + right_ear) / 2.0
+                mar = mouth_aspect_ratio(lms, MOUTH, w, h)
+
+                eye_color = (0, 255, 0) if ear >= EAR_THRESH else (0, 0, 255)
+                draw_eye_contour(frame, left_pts,  eye_color)
+                draw_eye_contour(frame, right_pts, eye_color)
+
+                # Drowsiness check
+                if ear < EAR_THRESH:
+                    EAR_COUNTER += 1
+                    if EAR_COUNTER >= EAR_CONSEC_FRAMES:
+                        start_alarm()
+                        status_text  = "DROWSY! WAKE UP!"
+                        status_color = (0, 0, 255)
+                    else:
+                        status_text  = f"Eyes closing... ({EAR_COUNTER})"
+                        status_color = (0, 165, 255)
+                else:
+                    EAR_COUNTER = 0
+                    stop_alarm()
+
+                # Yawn check
+                if mar > MAR_THRESH:
+                    YAWN_COUNTER += 1
+                    if YAWN_COUNTER >= YAWN_CONSEC_FRAMES:
+                        cv2.putText(frame, "YAWN DETECTED",
+                            (10, 90), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7, (0, 165, 255), 2)
+                else:
+                    YAWN_COUNTER = 0
+
+                # HUD
+                cv2.putText(frame, f"EAR: {ear:.2f}",
+                    (w - 160, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                    (0, 255, 0) if ear >= EAR_THRESH else (0, 0, 255), 2)
+                cv2.putText(frame, f"MAR: {mar:.2f}",
+                    (w - 160, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                    (0, 255, 0) if mar <= MAR_THRESH else (0, 165, 255), 2)
+
+        else:
+            status_text  = "No face detected"
+            status_color = (128, 128, 128)
+
+        # Status text
+        cv2.putText(frame, status_text,
+            (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
+            0.8, status_color, 2)
+
+        # Red border when alarm active
+        if alarm_event.is_set():
+            cv2.rectangle(frame, (0, 0), (w - 1, h - 1), (0, 0, 255), 4)
+
+        cv2.imshow("Driver Drowsiness Detector", frame)
+        key = cv2.waitKey(1) & 0xFF
+        if key in (13, ord("q"), ord("Q")):
             break
 
-        # Convert the frame to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        # Detect faces in the image
-        faces = detector(gray, 0)
-
-        for face in faces:
-            # Determine the facial landmarks for the face region
-            shape = predictor(gray, face)
-            shape = get_landmarks(shape)
-
-            leftEye = shape[lStart:lEnd]
-            rightEye = shape[rStart:rEnd]
-            
-            leftEAR = eye_aspect_ratio(leftEye)
-            rightEAR = eye_aspect_ratio(rightEye)
-
-            # average the eye aspect ratio together for both eyes
-            ear = (leftEAR + rightEAR) / 2.0
-
-            leftEyeHull = cv2.convexHull(leftEye)
-            rightEyeHull = cv2.convexHull(rightEye)
-            cv2.drawContours(frame, [leftEyeHull], -1, (0, 255, 0), 1)
-            cv2.drawContours(frame, [rightEyeHull], -1, (0, 255, 0), 1)
-
-            if ear < EYE_AR_THRESH:
-                COUNTER += 1
-                if COUNTER >= EYE_AR_CONSEC_FRAMES:
-                    if not alarm_on:
-                        alarm_on = True
-                        t = threading.Thread(target=sound_alarm_thread, daemon=True)
-                        t.start()
-                        
-                    cv2.putText(frame, "DROWSINESS ALERT!", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-            else:
-                COUNTER = 0
-                alarm_on = False
-
-            cv2.putText(frame, "EAR: {:.2f}".format(ear), (300, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-
-        cv2.imshow('frame', frame)
-        if cv2.waitKey(1) == 13: # ASCII corresponding to Enter key
-            break
-
-    alarm_on = False
+    stop_alarm()
+    face_landmarker.close()
     cap.release()
     cv2.destroyAllWindows()
+    print("[INFO] Exited cleanly.")
+
+
+if __name__ == "__main__":
+    main()

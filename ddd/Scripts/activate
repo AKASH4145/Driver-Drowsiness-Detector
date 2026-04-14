@@ -35,7 +35,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="C:\Users\akash\Desktop\OpenCV Projects\Driver Drowsiness Detector\ddd"
+VIRTUAL_ENV="C:\Users\akash\OneDrive\Desktop\OpenCV Projects\Driver Drowsiness Detector\ddd"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"
