@@ -94,14 +94,14 @@ Driver Drowsiness Detector/
 ---
 
 ## Demo Screenshots and Video
- 
-   ![Driver Awake](C:\Users\akash\OneDrive\Desktop\OpenCV Projects\Driver Drowsiness Detector\Demo Screenshots & Recording\Awake.png)
 
-   ![Driver Yawns](C:\Users\akash\OneDrive\Desktop\OpenCV Projects\Driver Drowsiness Detector\Demo Screenshots & Recording\Yawning.png)
+![Driver Awake](Demo%20Screenshots%20%26%20Recording/Awake.png)
 
-   ![Driver Drowzy](C:\Users\akash\OneDrive\Desktop\OpenCV Projects\Driver Drowsiness Detector\Demo Screenshots & Recording\Drowzy%20detected.png)
+![Driver Yawning](Demo%20Screenshots%20%26%20Recording/Yawning.png)
 
-   🎥 Demo Video:  https://drive.google.com/file/d/1aqU8oFkwPp50V6ke1Jh53XangXQd7H-5/view?usp=sharing
+![Driver Drowsy](Demo%20Screenshots%20%26%20Recording/Drowzy%20detected.png)
+
+🎥 **Demo Video:** [Watch on Drive](https://drive.google.com/file/d/1aqU8oFkwPp50V6ke1Jh53XangXQd7H-5/view?usp=sharing)
 ---
 
 ## Observations
